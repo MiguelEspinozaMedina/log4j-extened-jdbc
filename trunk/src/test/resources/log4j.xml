@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE log4j:configuration SYSTEM "log4j.dtd" >
+<log4j:configuration>
+	<appender name="console" class="org.apache.log4j.ConsoleAppender">
+		<layout class="org.apache.log4j.PatternLayout">
+			<param name="ConversionPattern" value="%d [%20.50t] %-5p %50.50c{5} - %m%n"/>
+		</layout>
+	</appender>
+
+	<appender name="async" class="org.apache.log4j.AsyncAppender">
+		<param name="bufferSize" value="1000"/>
+		<param name="blocking" value="true"/>
+		<appender-ref ref="jdbc"/> 
+	</appender>
+	
+	<appender name="jdbc" class="org.apache.log4j.extended.jdbc.JDBCAppender">
+        <!-- database connection -->
+        <param name="driverClassName" value="org.hsqldb.jdbc.JDBCDriver"/>
+        <param name="url" value="jdbc:hsqldb:file:test"/>
+        <param name="username" value="SA"/>
+        <param name="password" value=""/>
+        
+        <!-- table -->
+        <param name="table" value="applog"/>
+
+        <!-- columns -->
+        <!--
+            Format: 
+                column name | column type | formatting 
+            Column options:
+                name: 
+                    should match database name, value is right-trimmed
+                type: 
+                    should match java.sql.Types constant name, value is trimmed
+                layout: 
+                    can be a string that matches org.apache.log4j.PatternLayout.ConversionPattern or "%class: [Full Class Name]"
+                formatting arguments: 
+                    only applies if layout is set to class that requires additional configuration.
+                    parameters should be passed on the format of: "name=value" separated by " | ", 
+                    where name is 'bean property name' and value is java.lang.String or java primitive.
+        -->
+        <param name="column" value="date        | TIMESTAMP | %class: org.apache.log4j.extended.jdbc.TimestampLayout"/>
+        <param name="column" value="host        | VARCHAR   | %class: org.apache.log4j.extended.jdbc.HostLayout"/>
+        <param name="column" value="application | VARCHAR   | order"/>
+        <param name="column" value="thread      | VARCHAR   | %t"/>
+        <param name="column" value="category    | VARCHAR   | %c"/>
+        <param name="column" value="priority    | VARCHAR   | %p"/>
+        <param name="column" value="message     | VARCHAR   | %m"/>
+        <param name="column" value="throwable   | VARCHAR   | %class: org.apache.log4j.extended.jdbc.ThrowableLayout | throwableMaxChars=-1"/>
+	</appender>
+	
+	<root>
+		<priority value="WARN"/>
+		<appender-ref ref="console"/>
+		<appender-ref ref="async" />
+	</root>
+		
+	<category name="main.LoggerTest"><priority value="DEBUG"/></category>
+</log4j:configuration>
