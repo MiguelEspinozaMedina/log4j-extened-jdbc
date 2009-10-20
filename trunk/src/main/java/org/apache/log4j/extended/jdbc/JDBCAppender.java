@@ -67,7 +67,10 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
      */
     protected int bufferSize = 1;
 
-    protected boolean executeBatch;
+    /**
+     * Insert entire buffer in a single SQL batch.
+     */
+    protected boolean executeBatch = true;
     
     /**
      * ArrayList holding the buffer of Logging Events.

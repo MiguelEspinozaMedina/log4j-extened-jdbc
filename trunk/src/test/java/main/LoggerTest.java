@@ -32,7 +32,7 @@ public class LoggerTest extends TestCase {
         test.error("Test", new Exception("Test exception"));
         
         try {
-            Thread.sleep(1000);
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
