@@ -53,11 +53,11 @@
 		<param name="column" value="throwable   | VARCHAR   | %class: org.apache.log4j.extended.jdbc.ThrowableLayout | throwableMaxChars=-1"/>
 	</appender>
 	
+	<category name="main.LoggerTest"><priority value="DEBUG"/></category>
+
 	<root>
 		<priority value="WARN"/>
 		<appender-ref ref="console"/>
 		<appender-ref ref="async" />
 	</root>
-		
-	<category name="main.LoggerTest"><priority value="DEBUG"/></category>
 </log4j:configuration>
