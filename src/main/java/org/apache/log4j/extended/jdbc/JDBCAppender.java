@@ -289,10 +289,8 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
 								column.setLayout(new DateLayout(column));
 							} else if (column.getDataType() == Types.VARCHAR ||
 									   column.getDataType() == Types.LONGVARCHAR ||
-									   column.getDataType() == Types.LONGNVARCHAR ||
-									   column.getDataType() == Types.NVARCHAR||
-									   column.getDataType() == Types.NVARCHAR||
-									   column.getDataType() == Types.CHAR) {
+									   column.getDataType() == Types.CHAR ||
+                                       column.getDataType() == Types.CLOB) {
 								String columnName = column.getName().toLowerCase();
 								Layout defaultLayout = DEFAULT_COLUMN_FORMAT_MAP.get(columnName);
 
@@ -552,7 +550,7 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
             column.setName(columnArgs[0]);
         }
         if (columnArgs.length > 1) {
-        	if (!columnArgs[1].isEmpty()) {
+        	if (columnArgs[1].length() > 0) {
         		column.setDataType(columnArgs[1]);
         	}
         }

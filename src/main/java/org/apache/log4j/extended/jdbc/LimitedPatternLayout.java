@@ -22,7 +22,7 @@ public class LimitedPatternLayout extends PatternLayout implements ColumnDefinit
 	public String format(LoggingEvent event) {
 		String text = super.format(event);
 		
-		if (nullable && text.isEmpty()) {
+		if (nullable && text.length() == 0) {
 			return null;
 		} else if (maxChars > -1 && text.length() > maxChars) {
 			return text.substring(0, maxChars);
