@@ -4,14 +4,21 @@ import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.sql.DataSource;
 
+import org.apache.log4j.AsyncAppender;
 import org.apache.log4j.Layout;
 import org.apache.log4j.spi.ErrorCode;
 import org.apache.log4j.spi.LoggingEvent;
@@ -50,16 +57,31 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
 
     /**
      * Stores the insert SQL prepared statement:
-     * eg: insert into LogTable (Thread, Class, Message) values (?, ?, ?)
+     * i.e.: insert into LogTable (Thread, Class, Message) values (?, ?, ?)
+     * 
+     * If null, then default statement will be generated using table and column information
      */
     protected String sql = null;
+    
+    /**
+     * Stores the SQL for the meta-data lookup (should retrieve no rows)
+     * i.e.: select * from LogTable WHERE 1 = 2
+     * 
+     * If null, then default statement will be generated using table and column information
+     */
+    protected String metadataSql = null;
+
+    /**
+     * The table to be used to generate the SQL statements and column definitions.
+     */
     protected String table;
-    
-    protected List<DbColumn> columns = new ArrayList<DbColumn>();
-    
-    protected String columnSeparator = "\\s*\\|\\s*";
-    protected String layoutClassPrefix = "%class:";
-    protected String layoutPropertiesMacher = "\\s*=\\s*";
+
+	/**
+	 * Dynamically check the mata-data of the table specified (or using
+	 * metadataSql). Generate column definition of columns are not defined,
+	 * update column definition otherwise.
+	 */
+    protected boolean populateMetadata = true;
     
     /**
      * size of LoggingEvent buffer before writing to the database.
@@ -73,6 +95,36 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
     protected boolean executeBatch = true;
     
     /**
+     * A column definition separator.
+     * Default: pipe surrounded by whitespace.
+     */
+    protected String columnSeparator = "\\s*\\|\\s*";
+    
+    /**
+     * A column layout class prefix
+     * Default: %class:.
+     */
+    protected String layoutClassPrefix = "%class:";
+
+    /**
+     * A class layout properties matcher
+     * Default: = surrounded by whitespace.
+     */
+    protected String layoutPropertiesMacher = "\\s*=\\s*";
+    
+    /**
+     * Should location info be included in dispatched messages.
+     */
+    private boolean locationInfo = false;
+
+    /* INTERNAL (NON-CONFIGURABLE) VALUES */
+
+    /**
+     * A list of columns.
+     */
+    protected List<DbColumn> columns = new ArrayList<DbColumn>();
+
+    /**
      * ArrayList holding the buffer of Logging Events.
      */
     protected ArrayList<LoggingEvent> buffer;
@@ -80,8 +132,7 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
     /**
      * Helper object for clearing out the buffer
      */
-    protected ArrayList<LoggingEvent> removes;
-    
+    protected ArrayList<LoggingEvent> removes;    
     
     public JDBCAppender() {
       super();
@@ -93,8 +144,28 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
      * Adds the event to the buffer.  When full the buffer is flushed.
      */
     public void append(LoggingEvent event) {
-      buffer.add(event);
+    	if (closed) {
+            errorHandler.error("Unable to append: " + event.getLoggerName() + " - " + event.getMessage() + ", the appender is closed.");
+            return;
+    	}
+    	
+    	buffer.add(event);
       
+    	if (bufferSize > 1) {
+    		// --- Taken from AsyncAppender ---
+    		// Set the NDC and thread name for the calling thread as these
+    		// LoggingEvent fields were not set at event creation time.
+    		event.getNDC();
+    		event.getThreadName();
+    		// Get a copy of this thread's MDC.
+    		event.getMDCCopy();
+    	  
+    	  if (locationInfo) {
+    		  // make sure to also remember locationInfo in the event
+    		  event.getLocationInformation();
+    	  }
+      }
+		
       if (buffer.size() >= bufferSize)
         flushBuffer();
     }
@@ -128,6 +199,10 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
                 }
                 connection = DriverManager.getConnection(url, username, password);
             }
+            
+            if (populateMetadata) {
+            	doGenerateColumns(connection);
+            }
         }
 
         return connection;
@@ -139,15 +214,134 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
      */
     public void close()
     {
-      flushBuffer();
+    	if (!this.closed) {
+	    	if (buffer.size() > 0) {
+	    	      flushBuffer();
+	    	}
+	
+	    	try {
+	    		if (connection != null && !connection.isClosed()) {
+	    			connection.close();
+	    		}
+	    	} catch (SQLException e) {
+	    		errorHandler.error("Error closing connection", e, ErrorCode.GENERIC_FAILURE);
+	    	}
+	    	this.closed = true;
+    	}
+    }
+    
+    private void doGenerateColumns(Connection con) {
+        try {
+            String sql = getMetadataSql();
 
-      try {
-        if (connection != null && !connection.isClosed())
-            connection.close();
-      } catch (SQLException e) {
-          errorHandler.error("Error closing connection", e, ErrorCode.GENERIC_FAILURE);
-      }
-      this.closed = true;
+            Statement statement = con.createStatement();
+            ResultSet rs = null;
+            
+	        try {
+	        	rs = statement.executeQuery(sql);
+
+				ResultSetMetaData rsmd = rs.getMetaData();
+				int columnCount = rsmd.getColumnCount();
+		
+				if (columns.size() > 0) {
+					for (DbColumn column : columns) {
+					
+						for (int i = 1; i <= columnCount; i++) {
+							String dbName = rsmd.getColumnName(i);
+							if (column.getName().equalsIgnoreCase(dbName)) {
+								boolean isWritable = rsmd.isWritable(i);
+								
+								if (isWritable) {
+									column.setDataType(rsmd.getColumnType(i));
+									column.setMaxLength(rsmd.getColumnDisplaySize(i));
+									column.setNullable(rsmd.isNullable(i) == ResultSetMetaData.columnNullable);
+									
+									if (column.getLayout() != null && column.getLayout() instanceof ColumnDefinitionAware)  {
+										ColumnDefinitionAware columnDefinitionAwareLayout = (ColumnDefinitionAware)column.getLayout();
+										columnDefinitionAwareLayout.setDbColumn(column);
+									}
+								} else {
+						            errorHandler.error("Column " + table + "." + column.getName() + " is not writable.");
+								}
+								
+								break;
+							}
+						}
+					}
+				} else {
+					for (int i = 1; i <= columnCount; i++) {
+						boolean isWritable = rsmd.isWritable(i);
+						boolean isAutoIncrement = rsmd.isAutoIncrement(i);
+						
+						// if the column is not writable, or the column is Auto-Increment, skip it
+						if (isWritable && !isAutoIncrement) {
+							DbColumn column = new DbColumn();
+							column.setName(rsmd.getColumnName(i));
+							column.setDataType(rsmd.getColumnType(i));
+							column.setMaxLength(rsmd.getColumnDisplaySize(i));
+							column.setNullable(rsmd.isNullable(i) == ResultSetMetaData.columnNullable);
+
+							if (column.getDataType() == Types.TIME) {
+								column.setLayout(new DateLayout(column));
+							} else if (column.getDataType() == Types.DATE) {
+								column.setLayout(new DateLayout(column));
+							} else if (column.getDataType() == Types.TIMESTAMP) {
+								column.setLayout(new DateLayout(column));
+							} else if (column.getDataType() == Types.VARCHAR ||
+									   column.getDataType() == Types.LONGVARCHAR ||
+									   column.getDataType() == Types.LONGNVARCHAR ||
+									   column.getDataType() == Types.NVARCHAR||
+									   column.getDataType() == Types.NVARCHAR||
+									   column.getDataType() == Types.CHAR) {
+								String columnName = column.getName().toLowerCase();
+								Layout defaultLayout = DEFAULT_COLUMN_FORMAT_MAP.get(columnName);
+
+								if (defaultLayout != null && defaultLayout instanceof ColumnDefinitionAware)  {
+									((ColumnDefinitionAware) defaultLayout).setDbColumn(column);
+								}
+								
+								column.setLayout(defaultLayout);
+							} else if (column.getDataType() == Types.INTEGER) {
+								String columnName = column.getName().toLowerCase();
+								if (columnName.contains(DEFAULT_COLUMN_INT_PRIORITY)) {
+									column.setLayout(new PriorityIntLayout());
+								}
+							}
+							
+							if (column.getLayout() != null) {
+								column.getLayout().activateOptions();
+							}
+							
+							columns.add(column);
+						}
+					}
+				}		
+	        } finally {
+	        	if (rs != null) {
+	        		rs.close();
+	        	}
+	        	statement.close();
+	        }
+        } catch (SQLException ex) {
+            errorHandler.error("Failed to generate columns for table: " + table + " - " + ex.getMessage(), ex, ErrorCode.GENERIC_FAILURE);
+        }
+    }
+
+    private static final String DEFAULT_COLUMN_INT_PRIORITY = "priority";
+    
+    private static final Map<String, Layout> DEFAULT_COLUMN_FORMAT_MAP = new HashMap<String, Layout>();
+    static {
+    	DEFAULT_COLUMN_FORMAT_MAP.put("uuid", new UUIDLayout());
+    	DEFAULT_COLUMN_FORMAT_MAP.put("thread", new LimitedPatternLayout("%t"));
+    	DEFAULT_COLUMN_FORMAT_MAP.put("host", new HostLayout());
+    	DEFAULT_COLUMN_FORMAT_MAP.put("cat", new LimitedPatternLayout("%c"));
+    	DEFAULT_COLUMN_FORMAT_MAP.put("category", new LimitedPatternLayout("%c"));
+    	DEFAULT_COLUMN_FORMAT_MAP.put("msg", new LimitedPatternLayout("%m"));
+    	DEFAULT_COLUMN_FORMAT_MAP.put("message", new LimitedPatternLayout("%m"));
+    	DEFAULT_COLUMN_FORMAT_MAP.put("pri", new LimitedPatternLayout("%p"));
+    	DEFAULT_COLUMN_FORMAT_MAP.put("priority", new LimitedPatternLayout("%p"));
+    	DEFAULT_COLUMN_FORMAT_MAP.put("error", new ThrowableLayout());
+    	DEFAULT_COLUMN_FORMAT_MAP.put("throwable", new ThrowableLayout());
     }
     
     /**
@@ -165,6 +359,8 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
           Connection con = getConnection();
           String sql = getSql();
           
+          boolean autoCommit = con.getAutoCommit();
+          
           PreparedStatement statement = con.prepareStatement(sql);
           
           int logCount = buffer.size();
@@ -179,7 +375,9 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
                       
                       Layout layout = column.getLayout();
                       
-                      if (layout instanceof ObjectLayout) {
+                      if (layout == null) {
+                    	  value = null;
+                      } else if (layout instanceof ObjectLayout) {
                           value = ((ObjectLayout)layout).formatObject(logEvent);
                       } else {
                           value = layout.format(logEvent);
@@ -193,14 +391,20 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
                 	  statement.addBatch();
                   } else {
                       statement.execute();
-                	  connection.commit();
+                      
+                      if (!autoCommit) {
+                  		connection.commit();
+                      }
                   }
                   removes.add(logEvent);
               }
 
               if (executeBatch) {
             	  statement.executeBatch();
-            	  connection.commit();
+            	  
+            	  if (!autoCommit) {
+            		  connection.commit();
+            	  }
               }
           } catch (Exception e) {
               errorHandler.error("Failed to insert " + logCount + " log entries.", e, ErrorCode.FLUSH_FAILURE);
@@ -268,7 +472,7 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
     }
 
     /**
-     * Returns custom insert SQL statement
+     * Returns insert log SQL statement
      */
     public String getSql() {
         if (sql == null) {
@@ -277,6 +481,17 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
         return sql;
     }
 
+    /**
+     * Returns the meta-data SQL statement to generate columns.
+     * @return
+     */
+    public String getMetadataSql() {
+    	if (metadataSql == null) {
+    		metadataSql = "SELECT * FROM " + table + " WHERE 1=2";
+    	}
+    	return metadataSql;
+    }
+    
     /**
      * @param dataSource the dataSource to set
      */
@@ -302,24 +517,10 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
     }
 
     /**
-     * @return the table
-     */
-    public String getTable() {
-        return table;
-    }
-
-    /**
      * @param table the table to set
      */
     public void setTable(String table) {
         this.table = table;
-    }
-
-    /**
-     * @return the columns
-     */
-    public List<DbColumn> getColumns() {
-        return columns;
     }
 
     /**
@@ -351,7 +552,9 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
             column.setName(columnArgs[0]);
         }
         if (columnArgs.length > 1) {
-            column.setDataType(columnArgs[1]);
+        	if (!columnArgs[1].isEmpty()) {
+        		column.setDataType(columnArgs[1]);
+        	}
         }
         if (columnArgs.length > 2) {
             if (columnArgs[2].startsWith(layoutClassPrefix)) {
@@ -363,10 +566,6 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
                     if (layout instanceof Layout) {
                         ((Layout)layout).activateOptions();
                         column.setLayout((Layout)layout);
-                        
-                        for (int i = 3; i < columnArgs.length; i++) {
-                            populateProperty(layout, columnArgs[i]);
-                        }
                     } else {
                         throw new IllegalArgumentException("Unable to cast class: " + className + " to " + Layout.class.getName());
                     }
@@ -378,9 +577,22 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
                     throw new IllegalArgumentException("Unable to access class: " + className, e);
                 }
             } else {
-                column.setLayout(columnArgs[2]);
+                // pattern convert pattern to {@link PatternLayout} and set the layout
+            	LimitedPatternLayout layout = new LimitedPatternLayout(columnArgs[2]);
+            	layout.setDbColumn(column);
+            	layout.activateOptions();
+            	
+            	column.setLayout(layout);
+                
+            }
+            
+            if (column.getLayout() != null) {
+	            for (int i = 3; i < columnArgs.length; i++) {
+	                populateProperty(column.getLayout(), columnArgs[i]);
+	            }
             }
         }
+        
         this.columns.add(column);
     }
     
@@ -454,6 +666,8 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
     }
     
     /**
+     * Set the connection driver class to use (if not using {@link DataSource}).
+     * 
      * @param driverClassName the driverClassName to set
      */
     public void setDriverClassName(String driverClassName) {
@@ -461,6 +675,7 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
     }
 
     /**
+     * Set the URL of the connection (if not using {@link DataSource}).
      * @param url the url to set
      */
     public void setUrl(String url) {
@@ -481,7 +696,61 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
         this.password = password;
     }
 
-    /**
+	/**
+	 * Custom Meta-Data SQL that can be used in conjunction with
+	 * populateMetadata flag.
+	 * 
+	 * If set, this SQL statement will be used to retrieve the {@link ResultSet}
+	 * meta-data information. If the populateMetadata is set and custom
+	 * meta-data SQL is not defined, it will be generated based on the table
+	 * name.
+	 * 
+	 * @param metadataSql
+	 *            the metadataSql to set
+	 */
+	public void setMetadataSql(String metadataSql) {
+		this.metadataSql = metadataSql;
+	}
+
+	/**
+	 * Alternative method to set {@link #populateMetadata}
+	 * @param generateColumns the generateColumns to set
+	 */
+	public void setGenerateColumns(boolean generateColumns) {
+		this.populateMetadata = generateColumns;
+	}
+
+	/**
+	 * Instruct the {@link JDBCAppender} to execute a 'retrieve meta-data SQL'
+	 * and populate/generate column definitions with SQL specific information:
+	 * column name, data type, max size, nullable, etc...
+	 * @param populateMetadata
+	 *            the generateColumns to set
+	 */
+	public void setPopulateMetadata(boolean populateMetadata) {
+		this.populateMetadata = populateMetadata;
+	}
+
+	/**
+	 * This method (and solution) is borrowed from {@link AsyncAppender}
+	 * 
+	 * The <b>LocationInfo</b> option takes a boolean value. By default, it is
+	 * set to false which means there will be no effort to extract the location
+	 * information related to the event. As a result, the event that will be
+	 * ultimately logged will likely to contain the wrong location information
+	 * (if present in the log format).
+	 * <p/>
+	 * <p/>
+	 * Location information extraction is comparatively very slow and should be
+	 * avoided unless performance is not a concern.
+	 * </p>
+	 * @param flag true if location information should be extracted.
+	 */
+	public void setLocationInfo(final boolean flag) {
+	    locationInfo = flag;
+	}
+	  
+	/**
 	 * @param executeBatch the executeBatch to set
 	 */
 	public void setExecuteBatch(boolean executeBatch) {

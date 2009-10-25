@@ -7,8 +7,14 @@ import org.apache.log4j.Layout;
 import org.apache.log4j.spi.LoggingEvent;
 import org.apache.log4j.spi.ThrowableInformation;
 
-public class ThrowableLayout extends Layout {
-    private int throwableMaxChars = 8000;
+/**
+ * @author Simon Galperin
+ *
+ */
+public class ThrowableLayout extends Layout implements ColumnDefinitionAware {
+    private int maxChars = 8000;
+    private boolean nullable = true;
+
     
     @Override
     public void activateOptions() {
@@ -39,30 +45,27 @@ public class ThrowableLayout extends Layout {
             
             result = writer.toString();
 
-            if (throwableMaxChars != -1 && result.length() > throwableMaxChars) {
-                result = result.substring(0, throwableMaxChars - 1);
+            if (maxChars != -1 && result.length() > maxChars) {
+                result = result.substring(0, maxChars - 1);
             }
-            
-//            StringBuilder throwableStringBuffer = new StringBuilder();
-//
-//            String[] lines = throwableinfo.getThrowableStrRep();
-//            for (int index = 0; index < lines.length; index++) {
-//                throwableStringBuffer.append(lines[index]).append("\r\n");
-//            }
-            
-//            result = throwableStringBuffer.toString();
         }
 
+        if (!nullable && result == null) {
+        	result = "";
+        }
+        
         return result;
     }
-    
-    /**
-     * @param throwableMaxChars the throwableMaxChars to set
-     */
-    public void setThrowableMaxChars(int throwableMaxChars) {
-        this.throwableMaxChars = throwableMaxChars;
-    }
 
+	/* (non-Javadoc)
+	 * @see org.apache.log4j.extended.jdbc.ColumnDefinitionAware#setDbColumn(org.apache.log4j.extended.jdbc.DbColumn)
+	 */
+	@Override
+	public void setDbColumn(DbColumn column) {
+		this.maxChars = column.getMaxLength();
+		this.nullable = column.isNullable();
+	}
+    
     @Override
     public boolean ignoresThrowable() {
         return false;
