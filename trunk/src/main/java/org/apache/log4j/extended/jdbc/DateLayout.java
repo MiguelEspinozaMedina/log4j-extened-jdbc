@@ -40,7 +40,6 @@ public class DateLayout extends ObjectLayout implements ColumnDefinitionAware {
 	/* (non-Javadoc)
 	 * @see org.apache.log4j.extended.jdbc.ColumnDefinitionAware#setDbColumn(org.apache.log4j.extended.jdbc.DbColumn)
 	 */
-	@Override
 	public void setDbColumn(DbColumn column) {
 		this.sqlType = column.getDataType();
 		this.layout.setDbColumn(column);
