@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS applog (
+	id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+	date TIMESTAMP NOT NULL,
+	host VARCHAR(40) NULL,
+	application VARCHAR(50) NULL,
+	category VARCHAR(100) NULL,
+	thread VARCHAR(50) NULL,
+	priority VARCHAR(20) NULL,
+	message TEXT NULL,
+	throwable TEXT NULL
+)
