@@ -34,7 +34,6 @@ public class LimitedPatternLayout extends PatternLayout implements ColumnDefinit
 	/* (non-Javadoc)
 	 * @see org.apache.log4j.extended.jdbc.ColumnDefinitionAware#setDbColumn(org.apache.log4j.extended.jdbc.DbColumn)
 	 */
-	@Override
 	public void setDbColumn(DbColumn column) {
 		this.maxChars = column.getMaxLength();
 		this.nullable = column.isNullable();
