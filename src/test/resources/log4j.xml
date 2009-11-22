@@ -14,20 +14,35 @@
 	</appender>
 	
 	<appender name="jdbc" class="org.apache.log4j.extended.jdbc.JDBCAppender">
-		<!-- database connection (please chagne to use your own ) -->
+		<!-- database connection (please change to use your own ) -->
 		<!-- URL should include database name -->
 		<param name="driverClassName" value="com.mysql.jdbc.Driver"/>
 		<param name="url" value="jdbc:mysql://localhost:3306/test"/>
 		<param name="username" value="guest"/>
 		<param name="password" value=""/>
-		
-		<!-- uncomment this to use the datasource JNDI name -->
+
+		<!--
+			Use DataSource JNDI name instead of connection. Note, to use JNDI
+			dataSource, log4j must be loaded after JNDI loads (i.e. do not deploy
+			log4j in the shared/common package of the Tomcat instance)
+		-->
 		<!-- <param name="dataSource" value="java:jdbc/datasource"/> -->
 
 		<!-- table -->
 		<param name="table" value="applog"/>
 
+		<!-- only flush every 10 log events, can improve performance (allow to use batch inserts) -->
 		<param name="bufferSize" value="10"/>
+		
+		<!-- the maximum time (in seconds) to wait for a database insert statement (also applies to initial load) -->
+		<param name="statementTimeout" value="30"/>
+
+		<!--
+			disable initialization of the columns using the meta-data query. this
+			line should be uncommented if database does not support
+			resultSet.getMetaData() method
+		-->
+		<!-- <param name="populateMetadata" value="false"/> -->
 
 		<!-- columns -->
 		<!--
@@ -47,7 +62,7 @@
 		-->
 		<param name="column" value="date        | TIMESTAMP | %class: org.apache.log4j.extended.jdbc.DateLayout"/>
 		<param name="column" value="host        | VARCHAR   | %class: org.apache.log4j.extended.jdbc.HostLayout"/>
-		<param name="column" value="application | VARCHAR   | order"/>
+		<param name="column" value="application | VARCHAR   | log4j"/>
 		<param name="column" value="thread      | VARCHAR   | %t"/>
 		<param name="column" value="category    | VARCHAR   | %c"/>
 		<param name="column" value="priority    | VARCHAR   | %p"/>

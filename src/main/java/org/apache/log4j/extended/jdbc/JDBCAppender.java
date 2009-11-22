@@ -84,7 +84,7 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
     protected boolean populateMetadata = true;
     
     /**
-     * The timeout used by the SQL statements. Default to no timeout.
+     * The query timeout limit in seconds; zero means there is no limit. Default to no timeout.
      */
     protected int statementTimeout = 0;
     
@@ -735,6 +735,13 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
 	 */
 	public void setPopulateMetadata(boolean populateMetadata) {
 		this.populateMetadata = populateMetadata;
+	}
+
+	/**
+	 * @param statementTimeout the query timeout limit in seconds; zero means there is no limit.
+	 */
+	public void setStatementTimeout(int statementTimeout) {
+		this.statementTimeout = statementTimeout;
 	}
 
 	/**
