@@ -84,6 +84,11 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
     protected boolean populateMetadata = true;
     
     /**
+     * The timeout used by the SQL statements. Default to no timeout.
+     */
+    protected int statementTimeout = 0;
+    
+    /**
      * size of LoggingEvent buffer before writing to the database.
      * Default is 1.
      */
@@ -235,6 +240,8 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
             String sql = getMetadataSql();
 
             Statement statement = con.createStatement();
+            statement.setQueryTimeout(statementTimeout);
+            
             ResultSet rs = null;
             
 	        try {
@@ -360,6 +367,7 @@ public class JDBCAppender extends org.apache.log4j.AppenderSkeleton implements o
           boolean autoCommit = con.getAutoCommit();
           
           PreparedStatement statement = con.prepareStatement(sql);
+          statement.setQueryTimeout(statementTimeout);
           
           int logCount = buffer.size();
           
